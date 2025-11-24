@@ -1,0 +1,120 @@
+<!-- Updated index.html with Raspberry Pi IP and removed controls -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BME280 환경 모니터링</title>
+<style>
+/* Keep original styles unchanged */
+:root { --color-primary:#2196F3; --color-primary-dark:#1976D2; --color-success:#4CAF50; --color-warning:#FF9800; --color-danger:#F44336; --color-purple:#9C27B0; --color-bg:#f5f5f5; --color-surface:#ffffff; --color-text:#333; --color-text-secondary:#666; --color-border:#eee; --radius-sm:8px; --radius-md:12px; --shadow-sm:0 2px 4px rgba(0,0,0,0.1);} 
+body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--color-bg); color:var(--color-text);} 
+.container { max-width:1400px; margin:0 auto; padding:20px;} 
+.header { background:var(--color-surface); padding:20px 0; margin-bottom:30px; box-shadow:var(--shadow-sm); border-radius:var(--radius-md);} 
+.header-content { display:flex; justify-content:space-between; align-items:center; padding:0 20px;} 
+.status-indicator { width:12px; height:12px; border-radius:50%; display:inline-block;} 
+.status-indicator.connected{background:var(--color-success);} 
+.status-indicator.disconnected{background:var(--color-danger);} 
+.main-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px;} 
+.card { background:var(--color-surface); padding:24px; border-radius:var(--radius-md);} 
+.card-large { min-height:200px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#fff;} 
+.card-temp{background:linear-gradient(135deg,#FF6B6B,#FF8E53);} 
+.card-humidity{background:linear-gradient(135deg,#4FACFE,#00F2FE);} 
+.card-pressure{background:linear-gradient(135deg,#A8EDEA,#FED6E3); color:#333;} 
+.card-altitude{background:linear-gradient(135deg,#C471ED,#F64F59);} 
+.value-display { font-size:3rem; margin-top:10px;} 
+.system-status{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; padding:20px; background:var(--color-surface); border-radius:var(--radius-md); margin:30px 0;} 
+.status-item{display:flex; gap:12px; align-items:center;} 
+.status-icon{width:40px; height:40px; display:flex; justify-content:center; align-items:center; border-radius:50%;} 
+.status-icon.success{background:rgba(76,175,80,0.2); color:var(--color-success);} 
+.status-icon.error{background:rgba(244,67,54,0.2); color:var(--color-danger);} 
+.charts-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr)); gap:20px;} 
+.chart-container{background:var(--color-surface); padding:24px; border-radius:var(--radius-md);} 
+.chart-title{font-size:1.1rem; margin-bottom:20px;} 
+</style>
+</head>
+<body>
+<div class="header">
+    <div class="header-content">
+        <h1><span id="statusIndicator" class="status-indicator"></span> 🌡️ BME280 환경 모니터</h1>
+        <div>마지막 업데이트: <span id="lastUpdate">대기 중...</span></div>
+    </div>
+</div>
+
+<div class="container">
+    <div class="main-grid">
+        <div class="card card-large card-temp"><div>🌡️</div><div class="value-display"><span id="currentTemp">--</span>°C</div></div>
+        <div class="card card-large card-humidity"><div>💧</div><div class="value-display"><span id="currentHumidity">--</span>%</div></div>
+        <div class="card card-large card-pressure"><div>🌪️</div><div class="value-display"><span id="currentPressure">--</span>hPa</div></div>
+        <div class="card card-large card-altitude"><div>⛰️</div><div class="value-display"><span id="currentAltitude">--</span>m</div></div>
+    </div>
+
+    <div class="system-status">
+        <div class="status-item"><div id="connectionIcon" class="status-icon">✓</div><div><div class="status-label">시리얼 연결</div><div id="connectionStatus">--</div></div></div>
+        <div class="status-item"><div class="status-icon success">📊</div><div><div class="status-label">수집된 데이터</div><div id="dataCount">0개</div></div></div>
+        <div class="status-item"><div class="status-icon success">⏱️</div><div><div class="status-label">업데이트 간격</div><div>2초</div></div></div>
+    </div>
+
+    <div class="charts-grid">
+        <div class="chart-container"><div class="chart-title">온도 변화 추이</div><canvas id="tempChart"></canvas></div>
+        <div class="chart-container"><div class="chart-title">습도 변화 추이</div><canvas id="humidityChart"></canvas></div>
+        <div class="chart-container"><div class="chart-title">기압 변화 추이</div><canvas id="pressureChart"></canvas></div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const API = "http://192.168.125.182:5000"";
+let tempChart, humidityChart, pressureChart;
+let autoRefresh;
+
+function init(){ createCharts(); refresh(); autoRefresh=setInterval(refresh,2000);} 
+
+function createCharts(){
+    const opt={responsive:true, plugins:{legend:{display:false}}};
+    tempChart=new Chart(tempChartEl.getContext('2d'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#FF6B6B'}]},options:opt});
+    humidityChart=new Chart(humidityChartEl.getContext('2d'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#4FACFE'}]},options:opt});
+    pressureChart=new Chart(pressureChartEl.getContext('2d'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#A8EDEA'}]},options:opt});
+}
+
+async function refresh(){
+    try{
+        const cur = await (await fetch(`${API}/api/current`)).json();
+        const hist = await (await fetch(`${API}/api/history`)).json();
+        const stat = await (await fetch(`${API}/api/status`)).json();
+
+        updateUI(cur, hist, stat);
+    }catch(e){ document.getElementById('statusIndicator').className='status-indicator disconnected'; }
+}
+
+function updateUI(cur, hist, stat){
+    q("currentTemp").textContent=cur.temperature;
+    q("currentHumidity").textContent=cur.humidity;
+    q("currentPressure").textContent=cur.pressure;
+    q("currentAltitude").textContent=cur.altitude;
+    q("lastUpdate").textContent=new Date().toLocaleTimeString('ko-KR');
+
+    q("connectionStatus").textContent=stat.serial_connected?"연결됨":"끊김";
+    q("statusIndicator").className=stat.serial_connected?"status-indicator connected":"status-indicator disconnected";
+    q("connectionIcon").className=stat.serial_connected?"status-icon success":"status-icon error";
+    q("dataCount").textContent=stat.data_count+"개";
+
+    updateCharts(hist);
+}
+
+function updateCharts(h){ if(!h.length)return;
+    const labels=h.map(x=>new Date(x.time).toLocaleTimeString('ko-KR')).slice(-50);
+    tempChart.data.labels=labels;
+    humidityChart.data.labels=labels;
+    pressureChart.data.labels=labels;
+    tempChart.data.datasets[0].data=h.map(x=>x.temp).slice(-50);
+    humidityChart.data.datasets[0].data=h.map(x=>x.humidity).slice(-50);
+    pressureChart.data.datasets[0].data=h.map(x=>x.pressure).slice(-50);
+    tempChart.update(); humidityChart.update(); pressureChart.update(); }
+
+function q(id){return document.getElementById(id);} 
+
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>
